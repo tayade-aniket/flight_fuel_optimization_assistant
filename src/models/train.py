@@ -195,3 +195,12 @@ class ModelEvaluator:
             f.write(content)
         logger.info("Model benchmark report written to %s", report_path)
         return report_path
+
+
+if __name__ == "__main__":
+    feat_path = Path("data/processed/fuel_features.parquet")
+    if not feat_path.exists():
+        raise FileNotFoundError(f"Feature dataset not found at {feat_path}")
+    df_feat = pd.read_parquet(feat_path)
+    evaluator = ModelEvaluator()
+    evaluator.train_and_benchmark(df_feat)
