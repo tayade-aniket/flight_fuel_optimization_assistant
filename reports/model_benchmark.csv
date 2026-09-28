@@ -1,0 +1,8 @@
+Model,MAE_kg,RMSE_kg,R2,MedAE_kg,MeanRelError_pct
+LightGBM,149.55,364.54,0.8729,65.3,44.09
+Physics-Residual Hybrid,153.15,371.31,0.8682,65.77,44.69
+XGBoost,153.92,373.08,0.8669,66.54,45.24
+Random Forest,160.12,395.37,0.8505,68.15,46.84
+Ridge Regression,266.71,495.05,0.7657,136.08,75.9
+Physics Energy Baseline,277.82,549.21,0.7116,123.28,76.26
+Mean Baseline,687.99,1022.87,-0.0003,564.21,329.11
