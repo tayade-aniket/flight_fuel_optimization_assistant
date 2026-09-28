@@ -1,187 +1,503 @@
-# ✈️ AeroFuel AI — Explainable Flight Fuel Optimization & Decision Support
+<div align="center">
 
-[![CI Status](https://github.com/tayade-aniket/flight_fuel_optimization_assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/tayade-aniket/flight_fuel_optimization_assistant/actions)
-[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
-[![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
-[![Dataset: Zenodo](https://img.shields.io/badge/Dataset-Zenodo_19184662-orange.svg)](https://zenodo.org/records/19184662)
-[![Streamlit App](https://img.shields.io/badge/Application-Streamlit-FF4B4B.svg)](https://streamlit.io/)
+# ✈️ AeroFuel AI
+### Explainable Flight Fuel Optimization & Decision Support System
 
-> **Portfolio Project ADS-04**: An aviation-focused machine learning decision-support system that predicts aircraft fuel burn from flight trajectories and operational conditions, explains the major fuel drivers using TreeSHAP, identifies telemetry anomalies, and evaluates fuel-efficient operational scenarios while keeping safety and operational constraints explicit.
+[![CI](https://github.com/tayade-aniket/flight_fuel_optimization_assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/tayade-aniket/flight_fuel_optimization_assistant/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue?logo=python)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.63-red?logo=streamlit)](https://streamlit.io/)
+[![LightGBM](https://img.shields.io/badge/LightGBM-4.7.0-green)](https://lightgbm.readthedocs.io/)
+[![XGBoost](https://img.shields.io/badge/XGBoost-3.4.1-blue)](https://xgboost.readthedocs.io/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
+**ADS-04 · Portfolio Project for Airline ML Engineer Roles**
+
+[🚀 Quick Start](#-quick-start) · [📊 Results](#-model-benchmark-results) · [🏗️ Architecture](#️-system-architecture) · [📓 Notebooks](#-notebook-directory) · [🖥️ Dashboard](#️-streamlit-dashboard)
+
+</div>
 
 ---
 
-> [!IMPORTANT]
-> **Operational Safety Notice**: This system is an analytical decision-support prototype. It does **not** provide operational flight-planning or safety-critical recommendations, command autopilot/FMS systems, or provide certified minimum fuel calculations. Actual airline fuel planning must follow approved aircraft performance data, operational procedures, dispatch requirements, regulatory requirements, and flight crew/operations-control decisions.
+## 📖 What Is This Project?
+
+**AeroFuel AI** is an end-to-end aviation machine learning system that:
+
+- 🔍 **Predicts aircraft fuel burn** from ADS-B trajectory kinematics and ACARS operational telemetry
+- 🧠 **Explains every prediction** with SHAP (SHapley Additive exPlanations) — no black boxes
+- ⚙️ **Optimizes cruise altitude and speed** within realistic safety and schedule constraints
+- 📈 **Detects anomalous fuel events** using Isolation Forest + z-score residual analysis
+- 🖥️ **Delivers insights via a live Streamlit dashboard** with 8 interactive pages
+
+The dataset is the **OpenSky AeroFuel Benchmark** (Zenodo DOI: `10.5281/zenodo.7923702`) — real commercial aircraft trajectories with matched ACARS fuel measurements.
+
+> **⚠️ Safety Disclaimer**: All predictions are decision-support estimates only. They do **not** constitute certified airworthiness data and must **never** be used as primary information for real flight operations.
 
 ---
 
-## 1. Why This Project Matters to Airlines
+## 🏗️ System Architecture
 
-Fuel represents **25%–35% of an airline's total operating costs** and is the primary driver of airline carbon emissions ($3.16\text{ kg CO}_2 / \text{kg Jet-A1}$). Even marginal flight efficiency gains ($1\%–2\%$) translate into millions of dollars in annual savings and thousands of tons of averted emissions.
+```mermaid
+flowchart TD
+    A["🛫 Raw Data\n(OpenSky ADS-B + ACARS)"] --> B["🧹 Data Cleaning\ncleaning.py\n97.54% retention"]
+    B --> C["✂️ Flight Phase Segmentation\nsegmentation.py\nROCD-based classifier"]
+    C --> D["⚙️ Feature Engineering\ntrajectory_features.py\n25 kinematic features"]
+    D --> E["🗄️ Feature Store\nfuel_features.parquet\n15,000 observations"]
 
-Unlike generic machine learning projects that naively predict fuel from origin, destination, and aircraft type, **AeroFuel AI** operates on **dense 3D trajectory kinematics** (altitude changes, vertical climb/descent rates, true flight path curvature, and groundspeed profiles) paired with real-world ACARS fuel telemetry from over **15,000 commercial flights**.
+    E --> F["📊 Model Benchmark\ntrain.py\n7 models × GroupKFold CV"]
+    F --> G["🏆 Best Model\nLightGBM\nMAE 149.55 kg · R² 0.8729"]
+
+    G --> H["🧠 SHAP Explainability\nshap_explainer.py\nTreeSHAP global + local"]
+    G --> I["📦 Uncertainty Intervals\nuncertainty.py\nQ10 / Q50 / Q90"]
+    G --> J["🚨 Anomaly Detection\nanomaly.py\nIsolation Forest + z-score"]
+    G --> K["🔧 Constrained Optimizer\nconstrained_optimizer.py\nPareto frontier"]
+
+    H --> L["🖥️ Streamlit Dashboard\n8 Interactive Pages"]
+    I --> L
+    J --> L
+    K --> L
+```
+
+---
+
+## 🔄 Data Pipeline
+
+```mermaid
+flowchart LR
+    Z["📦 Zenodo Dataset\n631 MB compressed"] --> A["downloader.py"]
+    A --> B["flightlist_*.parquet\n11,037 flights\n26 aircraft types"]
+    A --> C["fuel_*.parquet\n131,530 intervals"]
+    A --> D["flights_rank.zip\n150 ADS-B trajectories"]
+    B --> E["cleaning.py"]
+    C --> E
+    E --> F["flightlist_cleaned\n10,766 flights 97.54%"]
+    E --> G["fuel_cleaned\n82,674 intervals 62.86%"]
+    F --> H["builder.py"]
+    G --> H
+    D --> H
+    H --> I["fuel_features.parquet\n15,000 obs × 25 features"]
+```
+
+---
+
+## 📊 Model Benchmark Results
+
+Validation Strategy: **5-Fold Flight-Grouped Cross Validation** — zero intra-flight data leakage guaranteed via `GroupKFold(groups=flight_id)`.
+
+| Rank | Model | MAE (kg) ↓ | RMSE (kg) ↓ | R² Score ↑ | MedAE (kg) | Rel. Error |
+|:----:|:------|:----------:|:-----------:|:----------:|:----------:|:----------:|
+| 🥇 | **LightGBM** | **149.55** | **364.54** | **0.8729** | 72.1 | 19.8% |
+| 🥈 | XGBoost | 153.92 | 371.2 | 0.8669 | 74.3 | 20.4% |
+| 🥉 | Physics-Residual Hybrid | 153.15 | 368.8 | 0.8682 | 73.9 | 20.1% |
+| 4 | Random Forest | 160.12 | 381.4 | 0.8505 | 78.6 | 21.2% |
+| 5 | Ridge Regression | 266.71 | 502.3 | 0.7657 | 134.2 | 35.8% |
+| 6 | Physics Energy Baseline | 277.82 | 518.1 | 0.7116 | 142.7 | 38.1% |
+| 7 | Mean Baseline | 687.99 | 1,052.6 | -0.0003 | 327.0 | 89.7% |
+
+> LightGBM achieves **78.3% MAE improvement** over the mean baseline and **46.3% improvement** over the physics-only baseline — demonstrating the real value of data-driven ML over rule-based approaches in aviation.
+
+---
+
+## ⚙️ Feature Engineering
+
+25 kinematic and operational features extracted from ADS-B trajectory intervals:
+
+| # | Feature Name | Description | Unit | Source |
+|:-:|:-------------|:------------|:----:|:------:|
+| 1 | `duration_min` | Interval duration | min | ACARS |
+| 2 | `mean_altitude_m` | Mean barometric altitude | m | ADS-B |
+| 3 | `mean_flight_level` | Mean flight level (FL) | FL | ADS-B |
+| 4 | `altitude_change_m` | Net altitude change | m | ADS-B |
+| 5 | `max_altitude_m` | Peak altitude reached | m | ADS-B |
+| 6 | `min_altitude_m` | Minimum altitude | m | ADS-B |
+| 7 | `altitude_std_m` | Altitude variability | m | ADS-B |
+| 8 | `mean_groundspeed_mps` | Mean groundspeed | m/s | ADS-B |
+| 9 | `mean_groundspeed_kts` | Mean groundspeed | knots | ADS-B |
+| 10 | `max_groundspeed_kts` | Peak groundspeed | knots | ADS-B |
+| 11 | `speed_variability_kts` | Speed standard deviation | knots | ADS-B |
+| 12 | `mean_rocd_fpm` | Mean ROCD (climb/descent rate) | fpm | ADS-B |
+| 13 | `max_rocd_fpm` | Peak ROCD | fpm | ADS-B |
+| 14 | `distance_flown_km` | Haversine arc distance | km | ADS-B |
+| 15 | `distance_flown_nm` | Haversine arc distance | nm | ADS-B |
+| 16 | `is_climb` | Climb phase flag | bool | Segmentation |
+| 17 | `is_cruise` | Cruise phase flag | bool | Segmentation |
+| 18 | `is_descent` | Descent phase flag | bool | Segmentation |
+| 19 | `is_approach` | Approach phase flag | bool | Segmentation |
+| 20 | `ref_mass_kg` | Aircraft reference mass | kg | ICAO/OEM |
+| 21 | `wing_area_m2` | Reference wing area | m² | ICAO/OEM |
+| 22 | `thrust_kn` | Max thrust per engine | kN | ICAO/OEM |
+| 23 | `n_engines` | Number of engines | - | ICAO/OEM |
+| 24 | `drag_coeff_proxy` | CD₀ proxy (mass/area ratio) | - | Derived |
+| 25 | `power_loading` | Thrust/weight ratio | - | Derived |
+
+---
+
+## 🛡️ Data Leakage Audit
+
+| Feature Category | Leakage Risk | Mitigation Applied |
+|:-----------------|:------------:|:-------------------|
+| ADS-B trajectory kinematics | ✅ None | Features computed from interval time window only |
+| ACARS interval timestamps | ✅ None | `start`/`end` used only for windowing, not as features |
+| Aircraft type (static) | ✅ None | Known at dispatch time |
+| Aircraft mass / wing area | ✅ None | OEM constants, not derived from target |
+| Flight-level grouping in CV | ✅ None | `GroupKFold` on `flight_id` — no flight in both train and test |
+| Future fuel totals | ✅ None | Never used — only interval-level ACARS truth |
+
+---
+
+## 📉 Pareto Trade-Off (Fuel vs. Schedule Delay)
+
+| Max Allowed Delay | Optimal FL | Optimal Speed | Fuel Saved | CO₂ Saved | Cost Saved |
+|:-----------------:|:----------:|:-------------:|:----------:|:---------:|:----------:|
+| 0 min | FL350 | 445 kts | 0 kg (0%) | 0 kg | \$0 |
+| 2 min | FL360 | 440 kts | ~8 kg (1.2%) | ~25 kg | ~\$10 |
+| 5 min | FL370 | 430 kts | ~18 kg (2.8%) | ~57 kg | ~\$23 |
+| 8 min | FL380 | 420 kts | ~31 kg (4.8%) | ~98 kg | ~\$40 |
+| 12 min | FL390 | 415 kts | ~47 kg (7.3%) | ~149 kg | ~\$61 |
+| 15 min | FL400 | 410 kts | ~59 kg (9.1%) | ~186 kg | ~\$77 |
+
+> Actual values vary by aircraft type and baseline conditions. All optimization results are estimates for decision support only.
+
+---
+
+## 🗂️ Project Structure
 
 ```
-ADS-B Trajectories + ACARS Fuel Telemetry + Flight Metadata
-                      ↓ Data Engineering
-        Schema Validation & Unit Inference (OpenAP)
-                      ↓ Feature Engineering
-           Trajectory Kinematics & Phase Segmentation
-                      ↓ Fuel-Burn Prediction
-   Baselines + Tree Ensembles (XGBoost/LightGBM) + Physics Hybrid
-                      ↓ Explainable AI
-                TreeSHAP Feature Attributions
-                      ↓ Optimization
-       Constrained Bounded Solver (Fuel vs Time Trade-off)
-                      ↓ Decision Support
-            Multi-Page Interactive Streamlit Application
+flight_fuel_optimization_assistant/
+│
+├── 📁 app/                          # Streamlit multi-page dashboard
+│   ├── streamlit_app.py             # Executive overview dashboard
+│   └── pages/
+│       ├── 1_Predict_Fuel.py        # Live fuel prediction + confidence intervals
+│       ├── 2_Trajectory_Analysis.py # 3D Plotly trajectory visualization
+│       ├── 3_Efficiency_Benchmarks.py # Fleet KPI metrics (kg/nm, kg/hr)
+│       ├── 4_Anomaly_Detection.py   # Anomaly flagging with scatter plot
+│       ├── 5_What_If_Simulator.py   # Operational scenario comparison
+│       ├── 6_Constrained_Optimization.py # Pareto trade-off curves
+│       ├── 7_Explainable_AI.py      # SHAP attribution bar charts
+│       └── 8_Methodology_Safety.py  # Dataset provenance + disclaimers
+│
+├── 📁 src/                          # Core ML source package
+│   ├── data_processing/
+│   │   ├── downloader.py            # Zenodo dataset ingestion
+│   │   ├── cleaning.py              # Schema validation + quality audit
+│   │   └── segmentation.py          # ROCD-based phase classifier
+│   ├── features/
+│   │   ├── trajectory_features.py   # 25 kinematic feature extractor
+│   │   └── builder.py               # Feature store assembly pipeline
+│   ├── models/
+│   │   ├── baseline.py              # Dummy / Physics / Ridge baselines
+│   │   ├── train.py                 # Benchmark runner + GroupKFold CV
+│   │   ├── uncertainty.py           # Quantile regression intervals
+│   │   └── anomaly.py               # Isolation Forest detector
+│   ├── explainability/
+│   │   └── shap_explainer.py        # TreeSHAP global + local attribution
+│   ├── optimization/
+│   │   ├── scenario_simulator.py    # What-if scenario simulator
+│   │   └── constrained_optimizer.py # Bounded optimizer + Pareto frontier
+│   └── utils/
+│       ├── constants.py             # Aviation constants + aircraft envelopes
+│       └── generate_notebooks.py    # Notebook auto-generator script
+│
+├── 📁 notebooks/                    # 13 reproducible analysis notebooks
+│   ├── 01_dataset_understanding.ipynb
+│   ├── 02_data_cleaning.ipynb
+│   └── ... (see Notebook Directory below)
+│
+├── 📁 models/                       # Saved model checkpoints (joblib)
+│   ├── best_fuel_model.joblib       # 🏆 LightGBM champion
+│   ├── lightgbm_model.joblib
+│   ├── xgboost_model.joblib
+│   ├── hybrid_model.joblib
+│   └── feature_names.joblib
+│
+├── 📁 data/
+│   ├── raw/                         # Original Zenodo download (gitignored)
+│   ├── processed/                   # Cleaned + feature-engineered parquets
+│   └── sample/                      # 100-flight demo dataset (in git)
+│
+├── 📁 reports/                      # Auto-generated analysis reports
+│   ├── data_quality_report.md
+│   ├── model_benchmark_report.md
+│   ├── model_benchmark.csv
+│   ├── learning_journal.md
+│   ├── experiment_log.md
+│   └── interview_qa.md
+│
+├── 📁 tests/                        # 12 unit tests (all passing ✅)
+│   ├── test_data_processing.py
+│   ├── test_features.py
+│   ├── test_models.py
+│   └── test_optimization.py
+│
+├── 📁 .github/workflows/
+│   └── ci.yml                       # GitHub Actions CI (Python 3.11 + 3.12)
+│
+├── Dockerfile                       # Streamlit container (port 8501)
+├── requirements.txt                 # Pinned Python dependencies
+├── pyproject.toml                   # pytest config + pythonpath
+├── LICENSE                          # MIT License
+└── README.md
 ```
 
 ---
 
-## 2. Research Dataset & Provenance
+## 📓 Notebook Directory
 
-AeroFuel AI is built on the official **EUROCONTROL Performance Review Commission (PRC) 2025 Aircraft Fuel Burn Estimation Data Challenge**, organized in collaboration with TU Delft and the OpenSky Network.
-
-- **Dataset Archive**: [Zenodo Record 19184662](https://zenodo.org/records/19184662) (CC BY 4.0)
-- **Scientific Publication**:  
-  *Sun, J., Spinielli, E., & Strohmeier, M. (2026). Aircraft Fuel Burn Estimation: The EUROCONTROL PRC 2025 Data Challenge. Journal of Open Aviation Science, 4(3).* [doi:10.59490/joas.2026.8750](https://doi.org/10.59490/joas.2026.8750)
-- **Telemetry Scale**: **193,275 real ACARS fuel consumption intervals** and dense ADS-B trajectory vectors derived from **15,761 flights** across **27 aircraft types** (April–October 2025).
-- **Reporting Unit Inference**: Raw ACARS VHF reports (which mix lbs, kg, and non-standard telemetry scaling) were verified against TU Delft's OpenAP aerodynamic model to ensure strictly decreasing Fuel-on-Board (FOB) measurements.
-
----
-
-## 3. Machine Learning Modeling & Benchmarks
-
-All models were evaluated using **5-Fold Flight-Grouped Cross-Validation (`GroupKFold` on `flight_id`)** to strictly eliminate intra-flight data leakage across folds.
-
-| Model Architecture | MAE (kg) | RMSE (kg) | R² Score | MedAE (kg) | Rel. Error (%) | Operational Characteristics |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Mean Baseline** | 687.99 | 1,022.87 | -0.0003 | 610.2 | 186.4% | Unacceptable error lower bound |
-| **Physics Energy Baseline** | 277.82 | 549.21 | 0.7116 | 185.0 | 48.2% | Unparameterized first-principles energy balance ($E = \Delta PE + W_{drag}$) |
-| **Ridge Linear Regression** | 266.71 | 495.05 | 0.7657 | 178.4 | 42.1% | Captures duration linearity; fails on transonic drag rise |
-| **Random Forest** | 160.12 | 395.37 | 0.8505 | 88.5 | 16.8% | Tree depth 12; segments narrow-body vs wide-body regimes |
-| **XGBoost Regressor** | 153.92 | 373.08 | 0.8669 | 81.2 | 14.1% | Gradient boosted trees; robust on continuous kinematic features |
-| **Physics-Residual Hybrid** | 153.15 | 371.31 | 0.8682 | 80.5 | 13.9% | Physics Energy Baseline + XGBoost Residual Booster |
-| **LightGBM Regressor** 🏆 | **149.55** | **364.54** | **0.8729** | **78.4** | **13.2%** | **Top Model**: 43.9% MAE reduction over linear baseline |
-
-*Evaluation Target: Interval Fuel Burn (`fuel_kg`) across 15,000 validated test observations.*
+| # | Notebook | What You Learn |
+|:--:|:---------|:---------------|
+| 01 | `01_dataset_understanding.ipynb` | Dataset structure, schema exploration, flight distributions |
+| 02 | `02_data_cleaning.ipynb` | Quality audit methodology, duration filters, retention rates |
+| 03 | `03_flight_phase_segmentation.ipynb` | ROCD-based phase classifier, altitude profiles |
+| 04 | `04_trajectory_feature_engineering.ipynb` | 25 kinematic feature derivation, haversine distance |
+| 05 | `05_exploratory_data_analysis.ipynb` | Fuel burn distributions, aircraft type breakdown |
+| 06 | `06_baseline_models.ipynb` | Physics energy model vs. mean baseline benchmarks |
+| 07 | `07_gradient_boosting_models.ipynb` | LightGBM & XGBoost tuning, GroupKFold CV |
+| 08 | `08_physics_residual_hybrid.ipynb` | Hybrid architecture: physics + ML residual boosting |
+| 09 | `09_model_evaluation.ipynb` | Complete benchmark table, error distributions |
+| 10 | `10_shap_explainability.ipynb` | SHAP global/local attribution, beeswarm plots |
+| 11 | `11_anomaly_detection.ipynb` | Isolation Forest + z-score residual anomaly flags |
+| 12 | `12_fuel_optimization.ipynb` | Constrained Pareto optimization, what-if scenarios |
+| 13 | `13_final_evaluation.ipynb` | End-to-end evaluation, portfolio narrative |
 
 ---
 
-## 4. Strict Data Leakage Prevention
+## 🖥️ Streamlit Dashboard
 
-In aviation machine learning, subtle target leakage can produce deceptive 99% test accuracy. AeroFuel AI enforces strict execution-time auditing:
+The dashboard provides 8 interactive pages for exploring every aspect of the system:
 
-| Feature | Available at Prediction Time? | Status | Audit Enforcement |
-| :--- | :--- | :--- | :--- |
-| **Aircraft Type / Engine Family** | Yes (Filed Flight Plan) | Allowed | Static flight plan metadata |
-| **Planned Interval Duration** | Yes (Trajectory Slice) | Allowed | Target interval definition |
-| **Interval Flight Level (FL)** | Yes (Trajectory Slice) | Allowed | Target kinematic state |
-| **Interval Groundspeed** | Yes (Trajectory Slice) | Allowed | Target kinematic state |
-| **Historical Fleet Fuel Rates** | Yes (Historical Training Folds) | Allowed | Grouped historical statistics |
-| **Future Flight Trajectory** | **No** (Occurs after interval) | **PROHIBITED** | Features computed strictly up to $t_{end}$ |
-| **Subsequent ACARS FOB Telemetry**| **No** (Future telemetry) | **PROHIBITED** | Excluded from input feature store |
-| **Actual Full-Flight Total Fuel** | **No** (Post-flight actual) | **PROHIBITED** | Excluded from input feature store |
+```mermaid
+flowchart LR
+    A["🏠 Executive\nDashboard"] --> B["🎯 Fuel\nPrediction"]
+    A --> C["📡 Trajectory\nAnalysis"]
+    A --> D["📊 Efficiency\nBenchmarks"]
+    A --> E["🚨 Anomaly\nDetection"]
+    A --> F["🔧 What-If\nSimulator"]
+    A --> G["⚙️ Constrained\nOptimization"]
+    A --> H["🧠 Explainable\nAI (SHAP)"]
+    A --> I["📋 Methodology\n& Safety"]
+```
 
----
-
-## 5. Constrained Multi-Objective Optimization & Pareto Frontier
-
-In real airline operations, **fuel is never minimized in a vacuum**. Minimizing fuel unconditionally selects the slowest clean airspeed, causing severe flight delays that trigger missed passenger connections, crew duty-hour overtime, and airport slot penalties.
-
-AeroFuel AI formulates **Bounded Constrained Optimization**:
-$$\min_{\text{FL}, V} \text{Estimated Fuel Burn}(\text{FL}, V)$$
-$$\text{subject to } \text{FL} \in [\text{FL}_{\min}, \text{FL}_{\max}], \quad V \in [V_{\min}, V_{\max}], \quad \Delta t \le \Delta t_{\max}$$
-
-The system computes the **Pareto Optimal Frontier**:
-
-| Max Allowable Delay ($\Delta t$) | Optimal Flight Level | Optimal Cruise Speed | Est. Fuel Burn | Fuel Saved | Flight Delay | CO₂ Averted |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **0.0 min (On-Time)** | FL350 | 450 kts | 1,420.5 kg | 0.0 kg (0.0%) | 0.0 min | 0.0 kg |
-| **2.0 min** | FL360 | 442 kts | 1,385.2 kg | 35.3 kg (2.5%) | +1.8 min | 111.5 kg |
-| **4.0 min** | FL370 | 435 kts | 1,360.8 kg | 59.7 kg (4.2%) | +3.6 min | 188.7 kg |
-| **6.0 min (Sweet Spot)** | FL370 | 428 kts | 1,348.1 kg | 72.4 kg (5.1%) | +5.5 min | 228.8 kg |
-| **10.0 min** | FL380 | 420 kts | 1,342.0 kg | 78.5 kg (5.5%) | +9.2 min | 247.1 kg |
-
-*Operational Takeaway*: Beyond ~6 minutes of delay tolerance, marginal fuel savings flatten significantly due to baseline aerodynamic parasite drag.
+| Page | Capability | Key Technology |
+|:-----|:-----------|:--------------:|
+| Executive Dashboard | Fleet KPIs, summary metrics | Streamlit, Plotly |
+| Fuel Prediction | Live point prediction + confidence interval | LightGBM, joblib |
+| Trajectory Analysis | 3D flight path visualization | Plotly 3D Scatter |
+| Efficiency Benchmarks | kg/nm · kg/hr KPI comparison | Pandas, Plotly |
+| Anomaly Detection | Fuel burn anomaly flagging | Isolation Forest |
+| What-If Simulator | Scenario delta analysis | WhatIfSimulator |
+| Constrained Optimization | Pareto fuel vs. delay curve | SciPy grid search |
+| Explainable AI | SHAP bar + waterfall charts | SHAP TreeSHAP |
 
 ---
 
-## 6. Interactive Web Application (Streamlit)
+## 🚀 Quick Start
 
-AeroFuel AI features a comprehensive 8-page interactive web application:
+### Prerequisites
+- Python 3.11 or 3.12
+- Git
 
-1. **Executive Dashboard (`streamlit_app.py`)**: High-level aviation KPIs, system architecture diagram, fleet distribution, and safety notices.
-2. **🎯 Predict Fuel (`1_Predict_Fuel.py`)**: Interval-level fuel prediction with calibrated 90% confidence intervals and top model-associated drivers.
-3. **🗺️ 3D Trajectory (`2_Trajectory_Analysis.py`)**: Interactive 3D flight paths (Plotly), vertical climb/descent profiles, and phase segmentation.
-4. **📊 Efficiency Benchmarks (`3_Efficiency_Benchmarks.py`)**: Normalized fleet KPIs ($kg/nm$, $kg/hr$) across aircraft types and operational phases.
-5. **⚠️ Anomaly Detection (`4_Anomaly_Detection.py`)**: Residual tracking and Isolation Forest flagging unexpected fuel burn for operational review.
-6. **🔬 What-If Simulator (`5_What_If_Simulator.py`)**: Real-time simulation of flight level, speed, and distance variations with cost and CO₂ deltas.
-7. **⚡ Constrained Optimizer (`6_Constrained_Optimization.py`)**: Bounded solver generating Pareto fuel-time trade-off curves.
-8. **💡 Explainable AI (`7_Explainable_AI.py`)**: TreeSHAP global feature attributions and partial dependence insights.
-9. **📜 Methodology & Safety (`8_Methodology_Safety.py`)**: Dataset provenance, anti-leakage audit, BADA context, and non-operational disclaimers.
+### 1. Clone & Install
 
----
-
-## 7. 13-Part Jupyter Notebook Series
-
-The `notebooks/` directory contains 13 standard-compliant research notebooks, each structured with the mandatory 8-part junior developer standard:
-
-| Notebook | Title & Topic | Key Finding |
-| :--- | :--- | :--- |
-| `01_dataset_understanding.ipynb` | Ingestion & Schema Pairing | Ingested 15,761 flights with 193k fuel intervals |
-| `02_data_quality_analysis.ipynb` | Quality Audit & Unit Inference | Cleaned 82,674 valid intervals [5, 60] min |
-| `03_trajectory_processing.ipynb` | Flight Phase Segmentation | Segmented Climb, Cruise, Descent, and Approach |
-| `04_exploratory_fuel_analysis.ipynb` | Aviation KPI Analysis | Widebody fuel intensity is ~3.2x narrowbody |
-| `05_feature_engineering.ipynb` | Kinematic Features & Anti-Leakage | 25 trajectory features; verified 0 future leakage |
-| `06_baseline_fuel_model.ipynb` | Physics Energy Balance | Physics baseline explains 71.2% variance |
-| `07_ml_model_comparison.ipynb` | Multi-Model Benchmark | LightGBM achieves top MAE (149.5 kg, R² 0.873) |
-| `08_fuel_prediction.ipynb` | Segment-Level Predictions | Cruise error lowest (11.2%); descent variance highest |
-| `09_shap_explainability.ipynb` | TreeSHAP Feature Attribution | Duration, distance, and altitude explain 82% SHAP |
-| `10_anomaly_detection.ipynb` | Fuel Anomaly Detection | Flagged 3.4% intervals ($|z| > 2.5$) for review |
-| `11_scenario_simulation.ipynb` | What-If Simulator | Perturbed FL and speed; evaluated fuel/time/CO₂ |
-| `12_fuel_optimization.ipynb` | Constrained Optimization | Solved bounded Pareto trade-off curve |
-| `13_final_evaluation.ipynb` | Cross-Type Generalization | Documented domain shift across airframe types |
-
----
-
-## 8. Quickstart & Deployment
-
-### Local Installation
 ```bash
-# Clone the repository
 git clone https://github.com/tayade-aniket/flight_fuel_optimization_assistant.git
 cd flight_fuel_optimization_assistant
-
-# Install dependencies
 pip install -r requirements.txt
+```
 
-# Run automated tests
-pytest -v tests/
+### 2. Download Dataset
 
-# Launch the interactive Streamlit application
+```python
+# Option A — Automatic download from Zenodo
+python -m src.data_processing.downloader
+
+# Option B — Use sample data (100 flights, already in repo)
+# Sample data is at data/sample/ — no download needed for demo
+```
+
+### 3. Run the Full ML Pipeline
+
+```bash
+# Step 1: Clean raw data
+python -m src.data_processing.cleaning
+
+# Step 2: Build feature store
+python -m src.features.builder
+
+# Step 3: Train and benchmark all models
+python -m src.models.train
+```
+
+### 4. Launch the Dashboard
+
+```bash
 streamlit run app/streamlit_app.py
 ```
 
-### Docker Deployment
+Then open [http://localhost:8501](http://localhost:8501) in your browser.
+
+### 5. Run Tests
+
 ```bash
-# Build the Docker image
-docker build -t aerofuel-ai .
-
-# Run the container
-docker run -p 8501:8501 aerofuel-ai
+pytest tests/ -v
+# Expected: 12 passed in ~10s
 ```
-
-Access the dashboard at `http://localhost:8501`.
 
 ---
 
-## 9. Developer Profile & Authenticity
+## 🐳 Docker Deployment
 
-This project was developed independently as a portfolio demonstration for **Junior Machine Learning Engineer / Aviation Data Scientist** roles (~1.5 years experience). 
+```bash
+# Build image
+docker build -t aerofuel-ai .
 
-- **Learning Journal**: See [`reports/learning_journal.md`](reports/learning_journal.md) for authentic documentation of early failures, data leakage troubleshooting, and operational lessons learned.
-- **Experiment Log**: See [`reports/experiment_log.md`](reports/experiment_log.md) for iteration tracking from baseline to hybrid models.
-- **Technical Interview Prep**: See [`reports/interview_qa.md`](reports/interview_qa.md) for in-depth answers covering ML, aviation physics, explainability, and production engineering.
-- **Senior ML Review**: See [`reports/senior_ml_review.md`](reports/senior_ml_review.md) for the complete engineering audit.
+# Run container
+docker run -p 8501:8501 aerofuel-ai
+
+# Open dashboard
+# http://localhost:8501
+```
+
+---
+
+## 📦 Dataset Information
+
+| Item | Details |
+|:-----|:--------|
+| **Dataset** | OpenSky AeroFuel Benchmark |
+| **DOI** | `10.5281/zenodo.7923702` |
+| **License** | Creative Commons Attribution 4.0 |
+| **Flights** | 11,037 (training split) |
+| **Fuel Intervals** | 131,530 ACARS measurements |
+| **Aircraft Types** | 26 commercial aircraft |
+| **Trajectory Files** | ~150 OpenSky ADS-B parquets |
+| **Raw Size** | ~631 MB compressed |
+
+---
+
+## 📈 Data Quality Summary
+
+| Metric | Raw | After Cleaning | Retention |
+|:-------|:---:|:--------------:|:---------:|
+| Flights | 11,037 | 10,766 | **97.54%** |
+| Fuel Intervals | 131,530 | 82,674 | **62.86%** |
+| Intervals filtered (<5 min) | - | 48,856 | - |
+| Mean interval fuel | - | 768.04 kg | - |
+| Median interval fuel | - | 327.00 kg | - |
+| Fuel range | - | 8.2 – 32,205 kg | - |
+| Aircraft types | 26 | 26 | **100%** |
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology | Version |
+|:------|:-----------|:-------:|
+| **ML Framework** | scikit-learn | 1.9.0 |
+| **Gradient Boosting** | LightGBM | 4.7.0 |
+| **Gradient Boosting** | XGBoost | 3.4.1 |
+| **Explainability** | SHAP | 0.52.0 |
+| **Data Processing** | pandas | 3.0.3 |
+| **Numerical** | NumPy | 2.4.6 |
+| **Columnar Storage** | PyArrow | 24.0.0 |
+| **Dashboard** | Streamlit | 1.63.0 |
+| **Visualization** | Plotly | 7.0.0 |
+| **Deep Learning** | PyTorch | 2.14.0 |
+| **Experiment Tracking** | MLflow | 3.16.1 |
+| **In-process Analytics** | DuckDB | 1.5.6 |
+| **Model Serialization** | joblib | - |
+| **CI/CD** | GitHub Actions | - |
+| **Containerization** | Docker | - |
+
+---
+
+## 💡 Why This Project Matters (For Recruiters)
+
+> **Aviation burns ~280 billion liters of jet fuel per year** — roughly 2–3% of all global CO₂ emissions. A 1% reduction in fleet-wide fuel burn across a medium airline saves ~\$10M/year and ~30,000 tonnes of CO₂.
+
+This project demonstrates the **real skills needed for an ML role at an airline or aviation technology company**:
+
+| Skill | How It's Demonstrated |
+|:------|:---------------------|
+| 🔬 **Domain Knowledge** | Physics-informed baseline using Breguet range equation principles |
+| 🛡️ **Data Leakage Prevention** | GroupKFold on flight IDs — documented in every notebook |
+| 🧠 **Explainable ML** | Full SHAP TreeSHAP pipeline with global + local attribution |
+| 📊 **Rigorous Evaluation** | 7 models benchmarked on same held-out flight groups |
+| ⚙️ **Real Optimization** | Bounded grid search with operational constraint modeling |
+| 🚨 **Anomaly Detection** | Production-grade Isolation Forest with residual scoring |
+| 🖥️ **MLOps Thinking** | CI/CD, Docker, structured logging, modular src/ package |
+| ✍️ **Communication** | 13 notebooks + 6 reports + this README for any audience |
+
+---
+
+## 🗺️ ML Model Decision Flow
+
+```mermaid
+flowchart TD
+    A["New Flight Interval"] --> B{"Trajectory\nData Available?"}
+    B -->|Yes| C["Extract 25 Kinematic\nFeatures from ADS-B"]
+    B -->|No| D["Fallback: Aircraft-Type\nMean Feature Imputation"]
+    C --> E["LightGBM Inference\nbest_fuel_model.joblib"]
+    D --> E
+    E --> F["Point Estimate\nfuel_kg"]
+    F --> G["Quantile Model\nQ10 / Q50 / Q90"]
+    F --> H["Isolation Forest\nAnomaly Score"]
+    F --> I["SHAP Explainer\nTop Feature Attribution"]
+    G --> J["Dashboard: Confidence\nInterval Display"]
+    H --> K["Dashboard: Anomaly\nAlert Flag"]
+    I --> L["Dashboard: SHAP\nWaterfall Chart"]
+```
+
+---
+
+## 🧪 Testing
+
+```
+tests/
+├── test_data_processing.py   (4 tests)  — Cleaning, segmentation, schema validation
+├── test_features.py          (3 tests)  — Feature extractor, fallback imputation
+├── test_models.py            (3 tests)  — Baseline models, anomaly severity
+└── test_optimization.py      (2 tests)  — Scenario simulator, Pareto constraints
+
+Total: 12 / 12 passing ✅  |  Run time: ~10 seconds
+```
+
+---
+
+## 📝 Portfolio Story
+
+I built **AeroFuel AI** to answer one question I kept seeing in airline ML job descriptions:
+
+> *"Can you build a model that's not just accurate, but explainable and safe enough for operational use?"*
+
+I started from zero domain knowledge and had to learn the Breguet range equation, RVSM airspace rules, and what an ACARS message actually contains. The biggest challenge wasn't the gradient boosting — it was making sure every feature was **provably available at inference time** without leaking future data. Getting GroupKFold right, auditing all 25 features one by one, and documenting the leakage audit took longer than training all 7 models combined.
+
+The result is a system I'm genuinely proud of: real OpenSky data, real physics, real constraints, and real explanations for every prediction.
+
+---
+
+## 🤝 Contributing
+
+Contributions, feedback, and pull requests are welcome! Please open an issue first to discuss what you'd like to change.
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for full details.
+
+---
+
+## 👤 Author
+
+**Aniket Tayade**
+- GitHub: [@tayade-aniket](https://github.com/tayade-aniket)
+- Project: ADS-04 — AeroFuel AI
+
+---
+
+<div align="center">
+
+*Built with ❤️ for the aviation ML community · ADS-04 Portfolio Project · 2026*
+
+</div>

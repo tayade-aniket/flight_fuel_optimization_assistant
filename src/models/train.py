@@ -13,7 +13,7 @@ import os
 import joblib
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge

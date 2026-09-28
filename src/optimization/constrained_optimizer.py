@@ -15,7 +15,7 @@ import logging
 from typing import Dict, List, Optional, Tuple, Any
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize
+# scipy.optimize is available for future gradient-based extensions; grid-search is used currently
 
 from src.utils.constants import (
     AIRCRAFT_ENVELOPES,
