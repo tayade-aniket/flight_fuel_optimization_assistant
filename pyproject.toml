@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aerofuel-ai"
+version = "1.0.0"
+description = "Explainable Flight Fuel Optimization & Decision Support Assistant"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "numpy",
+    "scipy",
+    "scikit-learn",
+    "xgboost",
+    "lightgbm",
+    "shap",
+    "streamlit",
+    "plotly",
+    "pyarrow",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
