@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}What-If Simulator | AeroFuel AI{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>🔬 What-If Fuel Simulator</h1>
+  <p>Perturb altitude, speed, and routing to compare fuel burn, flight time, and CO₂ emissions across scenarios.</p>
+</div>
+
+<div class="alert">
+  <strong>Notice:</strong> Scenarios are analytical estimates only. Not for operational use.
+</div>
+
+<div class="col-grid-2">
+  <!-- Config panel -->
+  <div class="card">
+    <h2>Baseline Configuration</h2>
+    <div class="form-group">
+      <label>Aircraft Type</label>
+      <select id="ac-type">
+        {% for ac in aircraft_types %}
+        <option value="{{ ac }}">{{ ac }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Base Distance (nm): <span class="range-val" id="dist-val">200</span></label>
+      <input type="range" id="base-dist" min="50" max="2000" value="200" step="10"
+             oninput="document.getElementById('dist-val').textContent=this.value">
+    </div>
+    <div class="form-group">
+      <label>Base Flight Level: <span class="range-val" id="fl-val">FL350</span></label>
+      <input type="range" id="base-fl" min="200" max="430" value="350" step="10"
+             oninput="document.getElementById('fl-val').textContent='FL'+this.value">
+    </div>
+    <div class="form-group">
+      <label>Base Groundspeed (kts): <span class="range-val" id="spd-val">450</span></label>
+      <input type="range" id="base-speed" min="300" max="560" value="450" step="5"
+             oninput="document.getElementById('spd-val').textContent=this.value">
+    </div>
+    <div class="form-group">
+      <label>Fuel Price (USD/kg)</label>
+      <input type="number" id="fuel-price" value="0.82" step="0.01" min="0.3" max="3.0">
+    </div>
+
+    <hr>
+    <h3 style="margin-bottom:0.75rem">Scenarios</h3>
+    <div id="scenarios-container">
+      <!-- scenario rows added dynamically -->
+    </div>
+    <button class="btn btn-outline" onclick="addScenario()" style="margin-top:0.5rem;margin-right:0.5rem">+ Add Scenario</button>
+    <button class="btn" id="run-btn" onclick="runSimulation()">▶ Run Simulation</button>
+    <div class="spinner" id="spinner" style="margin-top:0.75rem"></div>
+  </div>
+
+  <!-- Results -->
+  <div class="card">
+    <h2>Scenario Comparison</h2>
+    <div id="sim-placeholder" style="color:var(--text-muted);padding:2rem 0;text-align:center">
+      Add scenarios and click <strong>Run Simulation</strong>.
+    </div>
+    <div id="chart-sim" class="chart-container" style="display:none"></div>
+    <div id="sim-table-wrap" style="display:none;margin-top:1rem;overflow-x:auto">
+      <table class="data-table" id="sim-table">
+        <thead>
+          <tr><th>Scenario</th><th>Fuel (kg)</th><th>Δ Fuel (kg)</th><th>Δ Time (min)</th><th>Δ CO₂ (kg)</th><th>Δ Cost ($)</th></tr>
+        </thead>
+        <tbody id="sim-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+let scenarioCount = 0;
+
+function addScenario() {
+  scenarioCount++;
+  const id = scenarioCount;
+  const div = document.createElement('div');
+  div.id = `scen-${id}`;
+  div.style.cssText = 'background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:0.75rem;margin-bottom:0.75rem;position:relative';
+  div.innerHTML = `
+    <button onclick="document.getElementById('scen-${id}').remove()" 
+            style="position:absolute;top:0.5rem;right:0.5rem;background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:1rem">✕</button>
+    <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.5rem;color:var(--text-secondary)">Scenario ${id}</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem">
+      <div class="form-group" style="margin:0">
+        <label style="font-size:0.75rem">Name</label>
+        <input type="text" class="scen-name" value="Scenario ${id}" style="padding:0.35rem 0.5rem;font-size:0.8rem">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label style="font-size:0.75rem">ΔFL</label>
+        <input type="number" class="scen-fl" value="0" step="10" style="padding:0.35rem 0.5rem;font-size:0.8rem">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label style="font-size:0.75rem">Δ Speed (kts)</label>
+        <input type="number" class="scen-spd" value="0" step="5" style="padding:0.35rem 0.5rem;font-size:0.8rem">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label style="font-size:0.75rem">Δ Dist (nm)</label>
+        <input type="number" class="scen-dist" value="0" step="10" style="padding:0.35rem 0.5rem;font-size:0.8rem">
+      </div>
+    </div>`;
+  document.getElementById('scenarios-container').appendChild(div);
+}
+
+async function runSimulation() {
+  const btn = document.getElementById('run-btn');
+  const spin = document.getElementById('spinner');
+  btn.disabled = true;
+  spin.classList.add('show');
+
+  // gather scenario defs
+  const scenDivs = document.querySelectorAll('#scenarios-container > div');
+  const scenarios = Array.from(scenDivs).map(d => ({
+    name:       d.querySelector('.scen-name').value,
+    fl_delta:   parseFloat(d.querySelector('.scen-fl').value)   || 0,
+    speed_delta:parseFloat(d.querySelector('.scen-spd').value)  || 0,
+    dist_delta: parseFloat(d.querySelector('.scen-dist').value) || 0,
+  }));
+
+  const body = {
+    aircraft_type: document.getElementById('ac-type').value,
+    base_dist:  parseFloat(document.getElementById('base-dist').value),
+    base_fl:    parseFloat(document.getElementById('base-fl').value),
+    base_speed: parseFloat(document.getElementById('base-speed').value),
+    fuel_price: parseFloat(document.getElementById('fuel-price').value),
+    scenarios,
+  };
+
+  try {
+    const resp = await fetch('/api/simulate', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    renderSimResults(data.scenarios);
+  } catch (e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    spin.classList.remove('show');
+  }
+}
+
+function renderSimResults(scenarios) {
+  document.getElementById('sim-placeholder').style.display = 'none';
+  document.getElementById('chart-sim').style.display = 'block';
+  document.getElementById('sim-table-wrap').style.display = 'block';
+
+  // grouped bar chart
+  const names     = scenarios.map(s => s.scenario_name);
+  const fuels     = scenarios.map(s => s.scenario_fuel_kg);
+  const fuelDeltas= scenarios.map(s => s.fuel_delta_kg);
+  const timeDeltas= scenarios.map(s => s.time_delta_min);
+
+  Plotly.newPlot('chart-sim', [
+    {type:'bar', name:'Fuel (kg)', x:names, y:fuels, marker:{color:'#3B82F6'}},
+  ], {
+    title:'Estimated Fuel Burn by Scenario',
+    yaxis:{title:'Fuel (kg)'}, margin:{t:40},
+    height:320,
+  }, {responsive:true});
+
+  // table
+  const tbody = document.getElementById('sim-tbody');
+  tbody.innerHTML = scenarios.map((s, i) => {
+    const fd = s.fuel_delta_kg;
+    const color = i === 0 ? '' : (fd < 0 ? 'color:#10B981' : fd > 0 ? 'color:#EF4444' : '');
+    return `<tr>
+      <td><strong>${s.scenario_name}</strong></td>
+      <td>${s.scenario_fuel_kg}</td>
+      <td style="${color}">${fd > 0 ? '+' : ''}${fd}</td>
+      <td>${s.time_delta_min > 0 ? '+' : ''}${s.time_delta_min}</td>
+      <td>${s.co2_delta_kg > 0 ? '+' : ''}${s.co2_delta_kg}</td>
+      <td>${s.cost_delta_usd > 0 ? '+' : ''}${s.cost_delta_usd}</td>
+    </tr>`;
+  }).join('');
+}
+
+// add a couple default scenarios on load
+window.addEventListener('DOMContentLoaded', () => {
+  addScenario();
+  // set defaults to something interesting
+  document.querySelector('.scen-name').value = 'Step Up FL (+20)';
+  document.querySelector('.scen-fl').value = '20';
+  addScenario();
+  const names = document.querySelectorAll('.scen-name');
+  names[names.length-1].value = 'Speed Reduce (-20 kts)';
+  document.querySelectorAll('.scen-spd')[1].value = '-20';
+});
+</script>
+{% endblock %}

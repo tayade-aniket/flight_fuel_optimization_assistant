@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Optimizer | AeroFuel AI{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>⚡ Constrained Fuel Optimizer</h1>
+  <p>Solve bounded flight level and speed optimization with Pareto fuel-time trade-off curves.</p>
+</div>
+
+<div class="alert">
+  <strong>Notice:</strong> Optimization results are analytical estimates only. Not for operational use.
+</div>
+
+<div class="col-grid-2">
+  <!-- Config -->
+  <div class="card">
+    <h2>Optimization Parameters</h2>
+    <div class="form-group">
+      <label>Aircraft Type</label>
+      <select id="ac-type">
+        {% for ac in aircraft_types %}
+        <option value="{{ ac }}">{{ ac }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Flight Distance (nm): <span class="range-val" id="dist-val">500</span></label>
+      <input type="range" id="dist" min="100" max="3000" value="500" step="50"
+             oninput="document.getElementById('dist-val').textContent=this.value">
+    </div>
+    <div class="form-group">
+      <label>Max Allowable Delay (min): <span class="range-val" id="delay-val">8</span></label>
+      <input type="range" id="delay" min="0" max="30" value="8" step="1"
+             oninput="document.getElementById('delay-val').textContent=this.value">
+    </div>
+    <div class="form-group">
+      <label>Max FL Step Change: <span class="range-val" id="fl-val">40</span></label>
+      <input type="range" id="fl-step" min="10" max="80" value="40" step="10"
+             oninput="document.getElementById('fl-val').textContent=this.value">
+    </div>
+    <button class="btn" id="opt-btn" onclick="runOptimizer()">⚡ Optimize</button>
+    <div class="spinner" id="spinner" style="margin-top:0.75rem"></div>
+  </div>
+
+  <!-- Optimal result -->
+  <div class="card">
+    <h2>Optimal Solution</h2>
+    <div id="opt-placeholder" style="color:var(--text-muted);padding:2rem 0;text-align:center">
+      Configure parameters and click <strong>Optimize</strong>.
+    </div>
+    <div id="opt-result" style="display:none">
+      <div class="kpi-grid" style="margin-bottom:1rem">
+        <div class="kpi-card"><div class="kpi-val" id="opt-fuel">—</div><div class="kpi-lbl">Optimal Fuel (kg)</div></div>
+        <div class="kpi-card"><div class="kpi-val" id="opt-fl">—</div><div class="kpi-lbl">Optimal FL</div></div>
+        <div class="kpi-card"><div class="kpi-val" id="opt-spd">—</div><div class="kpi-lbl">Speed (kts)</div></div>
+        <div class="kpi-card"><div class="kpi-val" id="opt-delta">—</div><div class="kpi-lbl">Fuel Saved (kg)</div></div>
+      </div>
+      <table class="data-table">
+        <tbody id="opt-details"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Pareto Frontier — Fuel Savings vs Time Penalty</h2>
+  <div id="chart-pareto" class="chart-container"></div>
+</div>
+
+<script>
+async function runOptimizer() {
+  const btn = document.getElementById('opt-btn');
+  const spin = document.getElementById('spinner');
+  btn.disabled = true;
+  spin.classList.add('show');
+
+  const body = {
+    aircraft_type: document.getElementById('ac-type').value,
+    flight_dist_nm: parseFloat(document.getElementById('dist').value),
+    max_delay_min:  parseFloat(document.getElementById('delay').value),
+    max_fl_step:    parseFloat(document.getElementById('fl-step').value),
+  };
+
+  try {
+    const resp = await fetch('/api/optimize', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    renderResults(data);
+  } catch (e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    spin.classList.remove('show');
+  }
+}
+
+function renderResults(data) {
+  const opt = data.optimal;
+  document.getElementById('opt-placeholder').style.display = 'none';
+  document.getElementById('opt-result').style.display = 'block';
+
+  document.getElementById('opt-fuel').textContent = opt.scenario_fuel_kg;
+  document.getElementById('opt-fl').textContent   = 'FL' + opt.flight_level;
+  document.getElementById('opt-spd').textContent  = opt.groundspeed_kts + ' kts';
+  const saved = -opt.fuel_delta_kg;
+  document.getElementById('opt-delta').textContent = (saved > 0 ? '-' : '+') + Math.abs(saved).toFixed(1);
+
+  document.getElementById('opt-details').innerHTML = `
+    <tr><td>Baseline Fuel</td><td>${opt.baseline_fuel_kg} kg</td></tr>
+    <tr><td>Optimal Fuel</td><td>${opt.scenario_fuel_kg} kg</td></tr>
+    <tr><td>Fuel Delta</td><td>${opt.fuel_delta_kg > 0 ? '+' : ''}${opt.fuel_delta_kg} kg (${opt.fuel_delta_pct}%)</td></tr>
+    <tr><td>Time Delta</td><td>${opt.time_delta_min > 0 ? '+' : ''}${opt.time_delta_min} min</td></tr>
+    <tr><td>CO₂ Delta</td><td>${opt.co2_delta_kg > 0 ? '+' : ''}${opt.co2_delta_kg} kg</td></tr>
+    <tr><td>Cost Delta</td><td>$${opt.cost_delta_usd > 0 ? '+' : ''}${opt.cost_delta_usd}</td></tr>
+    <tr><td>Scenarios Evaluated</td><td>${data.evaluated_count}</td></tr>
+  `;
+
+  // pareto chart
+  if (data.pareto && data.pareto.length > 0) {
+    Plotly.newPlot('chart-pareto', [
+      {
+        type: 'scatter', mode: 'lines+markers',
+        name: 'Pareto Frontier',
+        x: data.pareto.map(p => p.time_penalty_min),
+        y: data.pareto.map(p => p.fuel_saved_kg),
+        text: data.pareto.map(p => `FL${p.optimal_fl} @ ${p.optimal_speed_kts} kts<br>Fuel saved: ${p.fuel_saved_kg.toFixed(1)} kg`),
+        hovertemplate: '%{text}<extra></extra>',
+        line: { color: '#3B82F6', width: 2.5 },
+        marker: { size: 9, color: '#1E40AF' },
+      }
+    ], {
+      xaxis: { title: 'Time Penalty (min)', zeroline: true },
+      yaxis: { title: 'Fuel Saved (kg)' },
+      margin: { t: 20 },
+      height: 360,
+    }, { responsive: true });
+  }
+}
+</script>
+{% endblock %}

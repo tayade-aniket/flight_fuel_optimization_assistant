@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Explainability | AeroFuel AI{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>💡 Model Explainability — SHAP Feature Importance</h1>
+  <p>Global feature attributions explaining the fuel prediction model's key operational drivers.</p>
+</div>
+
+<div class="alert info">
+  <strong>Interpretation Note:</strong> SHAP values represent the average marginal contribution of each feature
+  to model predictions. Positive values push predictions higher; negative values reduce them. These reflect
+  model associations, <em>not</em> direct physical causation.
+</div>
+
+<div class="col-grid-2">
+  <div class="card">
+    <h2>Global Feature Importance (Mean |SHAP|)</h2>
+    <div id="chart-shap" class="chart-container"></div>
+  </div>
+
+  <div class="card">
+    <h2>Feature Interpretation Guide</h2>
+    <table class="data-table" id="shap-table">
+      <thead>
+        <tr><th>Feature</th><th>SHAP Value</th><th>Effect</th></tr>
+      </thead>
+      <tbody id="shap-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Key Findings</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem">
+    <div style="padding:1rem;background:var(--card-bg);border-radius:8px;border:1px solid var(--border)">
+      <div style="font-weight:600;color:var(--accent);margin-bottom:0.5rem">⏱ Duration Dominates</div>
+      <p style="font-size:0.875rem;color:var(--text-secondary)">
+        Interval duration is by far the strongest predictor — longer intervals accumulate more fuel burn regardless of other factors.
+      </p>
+    </div>
+    <div style="padding:1rem;background:var(--card-bg);border-radius:8px;border:1px solid var(--border)">
+      <div style="font-weight:600;color:var(--accent);margin-bottom:0.5rem">⚖️ Mass Matters</div>
+      <p style="font-size:0.875rem;color:var(--text-secondary)">
+        Aircraft reference mass captures the physics of drag — heavier airframes burn proportionally more per interval.
+      </p>
+    </div>
+    <div style="padding:1rem;background:var(--card-bg);border-radius:8px;border:1px solid var(--border)">
+      <div style="font-weight:600;color:#10B981;margin-bottom:0.5rem">🏔 High FL = Less Drag</div>
+      <p style="font-size:0.875rem;color:var(--text-secondary)">
+        Flight level has a negative SHAP contribution — higher cruise altitudes reduce aerodynamic drag, lowering fuel burn at cruise speeds.
+      </p>
+    </div>
+    <div style="padding:1rem;background:var(--card-bg);border-radius:8px;border:1px solid var(--border)">
+      <div style="font-weight:600;color:var(--warning);margin-bottom:0.5rem">📐 Distance + Speed</div>
+      <p style="font-size:0.875rem;color:var(--text-secondary)">
+        Distance flown and groundspeed jointly capture the work done against drag — both correlate positively with fuel burn.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+async function loadShap() {
+  const resp = await fetch('/api/shap');
+  const data = await resp.json();
+  const vals = data.shap_values;
+
+  // sort by abs for the chart
+  const sorted = [...vals].sort((a, b) => Math.abs(b.shap_value) - Math.abs(a.shap_value));
+
+  Plotly.newPlot('chart-shap', [{
+    type: 'bar',
+    orientation: 'h',
+    y: sorted.map(d => d.feature),
+    x: sorted.map(d => d.shap_value),
+    marker: {
+      color: sorted.map(d => d.shap_value >= 0 ? '#3B82F6' : '#10B981'),
+    },
+    text: sorted.map(d => d.shap_value.toFixed(3)),
+    textposition: 'outside',
+  }], {
+    xaxis: { title: 'Mean SHAP Value', zeroline: true, zerolinecolor: '#CBD5E1' },
+    margin: { t: 10, l: 210, r: 60 },
+    height: 480,
+  }, { responsive: true });
+
+  // table
+  const tbody = document.getElementById('shap-tbody');
+  tbody.innerHTML = vals.map(d => `
+    <tr>
+      <td>${d.feature}</td>
+      <td>${d.shap_value > 0 ? '+' : ''}${d.shap_value.toFixed(3)}</td>
+      <td><span class="badge ${d.direction === 'positive' ? 'badge-medium' : 'badge-normal'}">${d.direction}</span></td>
+    </tr>`).join('');
+}
+
+window.addEventListener('DOMContentLoaded', loadShap);
+</script>
+{% endblock %}

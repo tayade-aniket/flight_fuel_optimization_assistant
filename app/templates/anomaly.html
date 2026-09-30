@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Anomaly Detection | AeroFuel AI{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>⚠️ Operational Fuel-Burn Anomaly Detection</h1>
+  <p>Identify intervals where observed fuel telemetry deviates materially from model expectations.</p>
+</div>
+
+<div class="alert danger">
+  <strong>Operational Protocol:</strong> Observations flagged here indicate statistical deviation and are marked
+  strictly for <strong>Analytical Review</strong>. They must NOT be automatically diagnosed as aircraft faults.
+  Common drivers include unexpected atmospheric headwinds/tailwind shifts, ATC holding, step climbs, or telemetry noise.
+</div>
+
+<div style="margin-bottom:1rem">
+  <button class="btn" id="run-btn" onclick="runAnomalyDetection()">▶ Run Anomaly Screening</button>
+  <div class="spinner" id="spinner" style="display:inline-block;margin-left:1rem;vertical-align:middle"></div>
+</div>
+
+<div class="kpi-grid" id="anomaly-kpis" style="display:none">
+  <div class="kpi-card"><div class="kpi-val" id="kpi-screened">—</div><div class="kpi-lbl">Screened</div></div>
+  <div class="kpi-card"><div class="kpi-val" id="kpi-flagged">—</div><div class="kpi-lbl">Flagged</div></div>
+  <div class="kpi-card"><div class="kpi-val" id="kpi-rate">—</div><div class="kpi-lbl">Anomaly Rate</div></div>
+  <div class="kpi-card"><div class="kpi-val" id="kpi-residual">—</div><div class="kpi-lbl">Mean Residual (kg)</div></div>
+</div>
+
+<div class="card">
+  <h2>Observed vs Predicted Fuel Burn</h2>
+  <div id="chart-scatter" class="chart-container"></div>
+</div>
+
+<div class="card">
+  <h2>Flagged Intervals for Analytical Review</h2>
+  <div id="no-anomalies" style="color:var(--text-muted);padding:1rem 0">Run screening to see results.</div>
+  <table class="data-table" id="flagged-table" style="display:none">
+    <thead>
+      <tr><th>Flight ID</th><th>Aircraft</th><th>Observed (kg)</th><th>Predicted (kg)</th><th>Residual (kg)</th><th>Z-Score</th><th>Severity</th></tr>
+    </thead>
+    <tbody id="flagged-tbody"></tbody>
+  </table>
+</div>
+
+<script>
+async function runAnomalyDetection() {
+  const btn = document.getElementById('run-btn');
+  const spin = document.getElementById('spinner');
+  btn.disabled = true;
+  spin.classList.add('show');
+
+  try {
+    const resp = await fetch('/api/anomaly', { method: 'POST' });
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+
+    // update kpis
+    document.getElementById('kpi-screened').textContent = data.total_screened.toLocaleString();
+    document.getElementById('kpi-flagged').textContent = data.flagged_count;
+    document.getElementById('kpi-rate').textContent = data.anomaly_rate_pct.toFixed(2) + '%';
+    document.getElementById('kpi-residual').textContent = data.mean_residual.toFixed(1);
+    document.getElementById('anomaly-kpis').style.display = 'grid';
+
+    // scatter plot
+    const nominal  = data.points.filter(p => p.status === 'Nominal');
+    const flagged  = data.points.filter(p => p.status === 'Flagged');
+    const maxVal   = Math.max(...data.points.map(p => Math.max(p.observed_fuel_kg, p.predicted_fuel_kg)));
+
+    Plotly.newPlot('chart-scatter', [
+      {
+        type: 'scatter', mode: 'markers', name: 'Nominal',
+        x: nominal.map(p => p.predicted_fuel_kg), y: nominal.map(p => p.observed_fuel_kg),
+        marker: { color: '#3B82F6', size: 5, opacity: 0.6 },
+        text: nominal.map(p => `${p.flight_id}<br>${p.aircraft_type}<br>Residual: ${p.residual_kg} kg`),
+        hovertemplate: '%{text}<extra></extra>',
+      },
+      {
+        type: 'scatter', mode: 'markers', name: 'Flagged',
+        x: flagged.map(p => p.predicted_fuel_kg), y: flagged.map(p => p.observed_fuel_kg),
+        marker: { color: '#EF4444', size: 9, symbol: 'x', opacity: 0.9 },
+        text: flagged.map(p => `${p.flight_id}<br>${p.aircraft_type}<br>Residual: ${p.residual_kg} kg<br>Z: ${p.z_score}`),
+        hovertemplate: '%{text}<extra></extra>',
+      },
+      {
+        // 1:1 parity line
+        type: 'scatter', mode: 'lines', name: 'Perfect Prediction',
+        x: [0, maxVal], y: [0, maxVal],
+        line: { color: '#9CA3AF', dash: 'dash', width: 1.5 },
+        showlegend: true,
+      },
+    ], {
+      xaxis: { title: 'Model Predicted Fuel (kg)' },
+      yaxis: { title: 'Actual ACARS Fuel Burn (kg)' },
+      margin: { t: 20 },
+      height: 420,
+      legend: { orientation: 'h', y: -0.15 },
+    }, { responsive: true });
+
+    // flagged table
+    if (data.flagged_table.length > 0) {
+      const tbody = document.getElementById('flagged-tbody');
+      tbody.innerHTML = data.flagged_table.map(r => `
+        <tr>
+          <td>${r.flight_id}</td>
+          <td>${r.aircraft_type}</td>
+          <td>${r.observed_fuel_kg}</td>
+          <td>${r.predicted_fuel_kg}</td>
+          <td>${r.residual_kg > 0 ? '+' : ''}${r.residual_kg}</td>
+          <td>${r.z_score}</td>
+          <td><span class="badge badge-${r.severity.toLowerCase()}">${r.severity}</span></td>
+        </tr>`).join('');
+      document.getElementById('flagged-table').style.display = 'table';
+      document.getElementById('no-anomalies').style.display = 'none';
+    } else {
+      document.getElementById('no-anomalies').textContent = '✅ No critical anomalies detected in current sample.';
+    }
+
+  } catch (e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    spin.classList.remove('show');
+  }
+}
+</script>
+{% endblock %}
