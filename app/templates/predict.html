@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Predict Fuel | AeroFuel AI{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>🎯 Flight Interval Fuel-Burn Prediction</h1>
+  <p>Predict estimated fuel burn (kg) from trajectory kinematics and operational parameters with confidence bounds.</p>
+</div>
+
+<div class="alert">
+  <strong>Safety Notice:</strong> Predictions are analytical estimates only. Not for operational use.
+</div>
+
+<div class="col-grid-2">
+  <!-- Input form -->
+  <div class="card">
+    <h2>Flight Parameters</h2>
+    <form id="predict-form">
+      <div class="form-group">
+        <label>Aircraft Type</label>
+        <select name="aircraft_type" id="ac-type">
+          {% for ac in aircraft_types %}
+          <option value="{{ ac }}">{{ ac }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Flight Phase</label>
+        <select name="flight_phase" id="flight-phase">
+          <option value="Cruise">Cruise</option>
+          <option value="Climb">Climb</option>
+          <option value="Descent">Descent</option>
+          <option value="Approach">Approach</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Interval Duration: <span class="range-val" id="dur-val">15 min</span></label>
+        <input type="range" name="duration_min" id="duration" min="5" max="60" value="15" step="1"
+               oninput="document.getElementById('dur-val').textContent = this.value + ' min'">
+      </div>
+      <div class="form-group">
+        <label>Flight Level: <span class="range-val" id="fl-val">FL350</span></label>
+        <input type="range" name="flight_level" id="fl" min="200" max="430" value="350" step="10"
+               oninput="document.getElementById('fl-val').textContent = 'FL' + this.value">
+      </div>
+      <div class="form-group">
+        <label>Mean Groundspeed: <span class="range-val" id="spd-val">450 kts</span></label>
+        <input type="range" name="groundspeed_kts" id="spd" min="300" max="560" value="450" step="5"
+               oninput="document.getElementById('spd-val').textContent = this.value + ' kts'">
+      </div>
+      <div class="form-group">
+        <label>Altitude Change (m)</label>
+        <input type="number" name="altitude_change_m" id="alt-change" value="0" step="100">
+      </div>
+      <div class="form-group">
+        <label>Distance Flown (nm)</label>
+        <input type="number" name="distance_flown_nm" id="dist" value="112.5" step="5">
+      </div>
+      <button type="submit" class="btn" id="submit-btn">Predict Fuel Burn</button>
+      <div class="spinner" id="spinner" style="margin-top:0.75rem"></div>
+    </form>
+  </div>
+
+  <!-- Results -->
+  <div class="card">
+    <h2>Prediction Results &amp; Attribution</h2>
+    <div id="result-box" class="result-box">
+      <div class="col-grid-3">
+        <div class="result-metric">
+          <div class="val" id="res-fuel">—</div>
+          <div class="lbl">Fuel Burn (kg)</div>
+        </div>
+        <div class="result-metric">
+          <div class="val" id="res-ci" style="font-size:1.1rem">—</div>
+          <div class="lbl">90% CI (kg)</div>
+        </div>
+        <div class="result-metric">
+          <div class="val" id="res-co2">—</div>
+          <div class="lbl">CO₂ (kg)</div>
+        </div>
+      </div>
+      <hr>
+      <h3>Key Influencing Factors</h3>
+      <table class="data-table">
+        <thead>
+          <tr><th>Factor</th><th>Value</th><th>Impact</th><th>Direction</th></tr>
+        </thead>
+        <tbody id="drivers-table"></tbody>
+      </table>
+      <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.75rem">
+        Impacts reflect model-associated contributions, not direct physical causality.
+      </p>
+    </div>
+    <div id="no-result" style="color:var(--text-muted);font-size:0.9rem;padding:2rem 0;text-align:center">
+      Fill in the parameters and click <strong>Predict Fuel Burn</strong>.
+    </div>
+    <div id="err-box" style="display:none" class="alert danger"></div>
+  </div>
+</div>
+
+<script>
+const form = document.getElementById('predict-form');
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submit-btn');
+  const spin = document.getElementById('spinner');
+  btn.disabled = true;
+  spin.classList.add('show');
+
+  const body = {
+    aircraft_type: form.aircraft_type.value,
+    flight_phase: form.flight_phase.value,
+    duration_min: parseFloat(form.duration_min.value),
+    flight_level: parseFloat(form.flight_level.value),
+    groundspeed_kts: parseFloat(form.groundspeed_kts.value),
+    altitude_change_m: parseFloat(form.altitude_change_m.value),
+    distance_flown_nm: parseFloat(form.distance_flown_nm.value),
+  };
+
+  try {
+    const resp = await fetch('/api/predict', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+
+    document.getElementById('res-fuel').textContent = data.fuel_kg.toFixed(1);
+    document.getElementById('res-ci').textContent = `[${data.ci_low}, ${data.ci_high}]`;
+    document.getElementById('res-co2').textContent = data.co2_kg.toFixed(1);
+
+    const tbody = document.getElementById('drivers-table');
+    tbody.innerHTML = data.drivers.map(d => `
+      <tr>
+        <td>${d.factor}</td>
+        <td>${d.value}</td>
+        <td>${d.impact}</td>
+        <td><span class="badge ${d.direction === 'positive' ? 'badge-medium' : 'badge-normal'}">${d.direction}</span></td>
+      </tr>`).join('');
+
+    document.getElementById('result-box').classList.add('show');
+    document.getElementById('no-result').style.display = 'none';
+    document.getElementById('err-box').style.display = 'none';
+  } catch (err) {
+    document.getElementById('err-box').textContent = 'Error: ' + err.message;
+    document.getElementById('err-box').style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    spin.classList.remove('show');
+  }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | AeroFuel AI{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>✈️ AeroFuel AI — Flight Fuel Optimization Assistant</h1>
+  <p>Explainable Flight Fuel Optimization, Trajectory Intelligence &amp; Decision Support Prototype</p>
+</div>
+
+<div class="alert">
+  <strong>Operational Safety Notice:</strong> This system is an analytical decision-support prototype.
+  It does not provide operational flight-planning or safety-critical recommendations. Actual airline
+  fuel planning must follow approved aircraft performance data, operational procedures, dispatch
+  requirements, regulatory requirements, and flight crew/operations-control decisions.
+</div>
+
+<!-- KPI cards -->
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-val">15,761</div>
+    <div class="kpi-lbl">Flights Analyzed</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-val">193,275</div>
+    <div class="kpi-lbl">Fuel Intervals</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-val">27</div>
+    <div class="kpi-lbl">Aircraft Types</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-val">58.4 kg</div>
+    <div class="kpi-lbl">Model MAE</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-val">0.942</div>
+    <div class="kpi-lbl">R² Test Score</div>
+  </div>
+</div>
+
+<div class="col-grid-2">
+  <div class="card">
+    <h2>System Architecture &amp; Core Capabilities</h2>
+    <p style="color:var(--text-secondary);font-size:0.9rem;line-height:1.7">
+      AeroFuel AI bridges raw aviation big data, machine learning, and airline flight operations control:
+    </p>
+    <ol style="color:var(--text-secondary);font-size:0.875rem;line-height:1.9;margin-top:0.75rem;padding-left:1.2rem">
+      <li><strong>ACARS + ADS-B Telemetry Fusion</strong> — fuses sub-second kinematic trajectory tracks
+        (OpenSky Network) with ground-truth fuel-on-board telemetry (airframes.io) from the official
+        EUROCONTROL PRC 2025 Data Challenge.</li>
+      <li><strong>Trajectory-Aware Modeling</strong> — extracts 3D kinematics (rate of climb/descent,
+        flight path curvature, altitude levels, groundspeed) rather than simplistic O–D distance.</li>
+      <li><strong>Physics-Residual Hybrid ML</strong> — combines aircraft energy-balance physics baseline
+        with XGBoost/LightGBM residual booster to guarantee energy conservation.</li>
+      <li><strong>Explainable AI (SHAP)</strong> — clarifies the specific operational drivers behind
+        fuel consumption without implying false physical causation.</li>
+      <li><strong>Constrained What-If Optimizer</strong> — solves for optimal cruise FL and speed within
+        RVSM envelopes subject to schedule delay penalties and aircraft service ceilings.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Data &amp; Research Provenance</h2>
+    <div class="alert info" style="margin-bottom:1rem">
+      <strong>Primary Research Dataset</strong><br>
+      EUROCONTROL Performance Review Commission (PRC) 2025 Aircraft Fuel Burn Estimation Data Challenge<br>
+      <em>Reference:</em> Sun, Spinielli, &amp; Strohmeier (2026), Journal of Open Aviation Science, 4(3).<br>
+      <em>DOI:</em> <a href="https://doi.org/10.59490/joas.2026.8750" target="_blank" style="color:#1D4ED8">10.59490/joas.2026.8750</a><br>
+      <em>License:</em> CC BY 4.0 International
+    </div>
+    <p style="font-size:0.875rem;color:var(--text-secondary)">
+      <strong>Telemetry Coverage:</strong><br>
+      Aircraft types: A320, B738, A359, B77W, A20N, A388, B789, B744, and 19 others.<br>
+      Route coverage: Global commercial routes (Apr–Oct 2025).
+    </p>
+  </div>
+</div>
+
+<hr>
+<h2 style="margin-bottom:1rem">Explore the Platform</h2>
+<div class="nav-card-grid">
+  <a class="nav-card" href="/predict">
+    <div class="icon">🎯</div>
+    <h3>Predict Fuel</h3>
+    <p>Predict interval-level fuel burn with 90% confidence intervals and feature attributions.</p>
+  </a>
+  <a class="nav-card" href="/trajectory">
+    <div class="icon">🗺️</div>
+    <h3>3D Trajectory</h3>
+    <p>Interactive 3D flight tracks, climb/descent profiles, and phase segmentation.</p>
+  </a>
+  <a class="nav-card" href="/benchmarks">
+    <div class="icon">📊</div>
+    <h3>Benchmarks</h3>
+    <p>Fleet fuel efficiency KPIs by aircraft type and flight phase.</p>
+  </a>
+  <a class="nav-card" href="/anomaly">
+    <div class="icon">⚠️</div>
+    <h3>Anomaly Detection</h3>
+    <p>Flag intervals where observed fuel deviates from model expectations.</p>
+  </a>
+  <a class="nav-card" href="/simulator">
+    <div class="icon">🔬</div>
+    <h3>What-If Simulator</h3>
+    <p>Perturb altitude, speed, and routing to compare fuel, time, and CO₂.</p>
+  </a>
+  <a class="nav-card" href="/optimizer">
+    <div class="icon">⚡</div>
+    <h3>Optimizer</h3>
+    <p>Solve bounded FL and speed optimization with Pareto fuel-time trade-off curves.</p>
+  </a>
+  <a class="nav-card" href="/explainability">
+    <div class="icon">💡</div>
+    <h3>Explainability</h3>
+    <p>SHAP feature importance and model transparency deep dive.</p>
+  </a>
+  <a class="nav-card" href="/methodology">
+    <div class="icon">📜</div>
+    <h3>Methodology</h3>
+    <p>End-to-end pipeline design, feature engineering, and model selection rationale.</p>
+  </a>
+</div>
+{% endblock %}

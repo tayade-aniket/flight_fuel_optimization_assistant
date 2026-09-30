@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Benchmarks | AeroFuel AI{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>📊 Fleet Fuel-Efficiency Benchmarking</h1>
+  <p>Normalized operational KPIs: fuel burn per nautical mile (kg/nm), fuel per hour (kg/hr), and phase intensity.</p>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <div style="display:flex;gap:1rem;align-items:flex-end;flex-wrap:wrap">
+    <div class="form-group" style="flex:1;min-width:200px;margin:0">
+      <label>Filter Aircraft Types (comma-separated, blank = all)</label>
+      <input type="text" id="types-input" placeholder="e.g. A320,B738,A20N">
+    </div>
+    <button class="btn" onclick="loadBenchmarks()">Load Benchmarks</button>
+    <div class="spinner" id="spinner"></div>
+  </div>
+</div>
+
+<div class="kpi-grid" id="bench-kpis">
+  <div class="kpi-card"><div class="kpi-val" id="kpi-pernm">—</div><div class="kpi-lbl">Fleet Avg kg/nm</div></div>
+  <div class="kpi-card"><div class="kpi-val" id="kpi-perhr">—</div><div class="kpi-lbl">Fleet Avg kg/hr</div></div>
+  <div class="kpi-card"><div class="kpi-val" id="kpi-intervals">—</div><div class="kpi-lbl">Analyzed Intervals</div></div>
+  <div class="kpi-card"><div class="kpi-val" id="kpi-types">—</div><div class="kpi-lbl">Aircraft Types</div></div>
+</div>
+
+<div class="col-grid-2">
+  <div class="card">
+    <h2>Fuel Intensity per Nautical Mile (kg/nm)</h2>
+    <div id="chart-nm" class="chart-container"></div>
+  </div>
+  <div class="card">
+    <h2>Hourly Fuel Consumption Rate (kg/hr)</h2>
+    <div id="chart-hr" class="chart-container"></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Flight Phase Fuel Intensity</h2>
+  <table class="data-table" id="phase-table">
+    <thead>
+      <tr><th>Phase</th><th>kg / min</th><th>Share of Flight</th><th>Primary Driver</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<script>
+async function loadBenchmarks() {
+  const types = document.getElementById('types-input').value.trim();
+  const spin = document.getElementById('spinner');
+  spin.classList.add('show');
+
+  try {
+    const url = '/api/benchmarks' + (types ? `?types=${encodeURIComponent(types)}` : '');
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+
+    document.getElementById('kpi-pernm').textContent = data.fleet_avg_per_nm;
+    document.getElementById('kpi-perhr').textContent = data.fleet_avg_per_hr;
+    document.getElementById('kpi-intervals').textContent = data.total_intervals.toLocaleString();
+    document.getElementById('kpi-types').textContent = data.by_type.length;
+
+    // box plot - fuel per nm
+    const nmTraces = data.by_type.map(d => ({
+      type: 'box', name: d.aircraft_type, y: d.fuel_per_nm_values, boxpoints: 'outliers',
+    }));
+    Plotly.newPlot('chart-nm', nmTraces,
+      {yaxis:{title:'kg / nm'}, showlegend:false, margin:{t:20}, height:340}, {responsive:true});
+
+    // bar chart - avg fuel per hr
+    Plotly.newPlot('chart-hr',
+      [{type:'bar', x: data.by_type.map(d=>d.aircraft_type), y: data.by_type.map(d=>d.mean_per_hr),
+        marker:{color:'#3B82F6'}}],
+      {xaxis:{title:'Aircraft Type'}, yaxis:{title:'Mean kg / hr'}, margin:{t:20}, height:340},
+      {responsive:true});
+
+    // phase table
+    const tbody = document.querySelector('#phase-table tbody');
+    tbody.innerHTML = data.phase_breakdown.map(p => `
+      <tr>
+        <td>${p.phase}</td>
+        <td>${p.rate_kg_min}</td>
+        <td>${p.share_pct}%</td>
+        <td>${p.driver}</td>
+      </tr>`).join('');
+
+  } catch (e) {
+    alert('Error: ' + e.message);
+  } finally {
+    spin.classList.remove('show');
+  }
+}
+
+window.addEventListener('DOMContentLoaded', loadBenchmarks);
+</script>
+{% endblock %}

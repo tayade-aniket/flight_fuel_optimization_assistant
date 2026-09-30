@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Trajectory | AeroFuel AI{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>🗺️ 3D Trajectory &amp; Operational Phase Analysis</h1>
+  <p>Interactive 3D flight paths, vertical altitude profiles, and phase-level segmentation.</p>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <div style="display:flex;gap:1rem;align-items:flex-end">
+    <div class="form-group" style="flex:1;margin:0">
+      <label>Select Flight ID</label>
+      <select id="flight-select">
+        {% for fid in flight_ids %}
+        <option value="{{ fid }}">{{ fid }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn" id="load-btn" onclick="loadTrajectory()">Load Trajectory</button>
+    <div class="spinner" id="spinner"></div>
+  </div>
+</div>
+
+<!-- KPI row -->
+<div class="kpi-grid" id="traj-kpis" style="display:none">
+  <div class="kpi-card"><div class="kpi-val" id="kpi-pts">—</div><div class="kpi-lbl">Track Points</div></div>
+  <div class="kpi-card"><div class="kpi-val" id="kpi-alt">—</div><div class="kpi-lbl">Max Altitude (FL)</div></div>
+  <div class="kpi-card"><div class="kpi-val" id="kpi-spd">—</div><div class="kpi-lbl">Max Speed (kts)</div></div>
+  <div class="kpi-card"><div class="kpi-val" id="kpi-cruise">—</div><div class="kpi-lbl">Cruise Ratio</div></div>
+</div>
+
+<div class="card">
+  <h2>Interactive 3D Trajectory Track</h2>
+  <div id="chart-3d" class="chart-container" style="min-height:500px"></div>
+</div>
+
+<div class="col-grid-2">
+  <div class="card">
+    <h2>Vertical Altitude Profile</h2>
+    <div id="chart-alt" class="chart-container"></div>
+  </div>
+  <div class="card">
+    <h2>Groundspeed Dynamics</h2>
+    <div id="chart-spd" class="chart-container"></div>
+  </div>
+</div>
+
+<script>
+const PHASE_COLORS = {
+  Climb: '#3B82F6', Cruise: '#10B981', Descent: '#F59E0B',
+  Approach: '#EF4444', Unknown: '#6B7280'
+};
+
+async function loadTrajectory() {
+  const fid = document.getElementById('flight-select').value;
+  const btn = document.getElementById('load-btn');
+  const spin = document.getElementById('spinner');
+  btn.disabled = true;
+  spin.classList.add('show');
+
+  try {
+    const resp = await fetch(`/api/trajectory?flight_id=${encodeURIComponent(fid)}`);
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    renderCharts(data);
+  } catch (e) {
+    alert('Error loading trajectory: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    spin.classList.remove('show');
+  }
+}
+
+function renderCharts(data) {
+  const pts = data.points;
+  const m = data.metrics;
+
+  // update kpis
+  document.getElementById('kpi-pts').textContent = m.total_points.toLocaleString();
+  document.getElementById('kpi-alt').textContent = m.max_altitude_fl.toFixed(0);
+  document.getElementById('kpi-spd').textContent = m.max_speed_kts.toFixed(0);
+  document.getElementById('kpi-cruise').textContent = m.cruise_ratio_pct.toFixed(1) + '%';
+  document.getElementById('traj-kpis').style.display = 'grid';
+
+  // group by phase for 3D scatter
+  const phases = [...new Set(pts.map(p => p.flight_phase))];
+  const traces3d = phases.map(phase => {
+    const ph = pts.filter(p => p.flight_phase === phase);
+    return {
+      type: 'scatter3d', mode: 'lines',
+      name: phase,
+      x: ph.map(p => p.lon), y: ph.map(p => p.lat), z: ph.map(p => p.altitude),
+      line: { color: PHASE_COLORS[phase] || '#888', width: 3 },
+    };
+  });
+
+  Plotly.newPlot('chart-3d', traces3d, {
+    title: `3D Flight Path — ${data.flight_id}`,
+    scene: { aspectmode: 'manual', aspectratio: {x:1.5,y:1.5,z:0.5},
+      xaxis:{title:'Longitude'}, yaxis:{title:'Latitude'}, zaxis:{title:'Altitude (m)'} },
+    margin: {t:40},
+    legend: {orientation:'h', y:-0.1},
+    height: 500,
+  }, {responsive: true});
+
+  // altitude profile
+  const altTraces = phases.map(phase => {
+    const ph = pts.filter(p => p.flight_phase === phase);
+    return {
+      type: 'scatter', mode: 'lines',
+      name: phase,
+      x: ph.map((_, i) => i), y: ph.map(p => p.altitude),
+      line: { color: PHASE_COLORS[phase] },
+      fill: 'tozeroy', fillcolor: PHASE_COLORS[phase] + '22',
+    };
+  });
+  Plotly.newPlot('chart-alt', altTraces,
+    {title:'Altitude vs Track Index', xaxis:{title:'Index'}, yaxis:{title:'Altitude (m)'},
+     margin:{t:40}, legend:{orientation:'h'}, height:320}, {responsive:true});
+
+  // speed profile
+  const spdTraces = phases.map(phase => {
+    const ph = pts.filter(p => p.flight_phase === phase);
+    return {
+      type: 'scatter', mode: 'lines',
+      name: phase,
+      x: ph.map((_, i) => i), y: ph.map(p => p.groundspeed),
+      line: { color: PHASE_COLORS[phase] },
+    };
+  });
+  Plotly.newPlot('chart-spd', spdTraces,
+    {title:'Groundspeed vs Track Index', xaxis:{title:'Index'}, yaxis:{title:'Speed (kts)'},
+     margin:{t:40}, legend:{orientation:'h'}, height:320}, {responsive:true});
+}
+
+// load first flight on page load
+window.addEventListener('DOMContentLoaded', loadTrajectory);
+</script>
+{% endblock %}
