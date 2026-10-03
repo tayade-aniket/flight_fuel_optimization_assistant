@@ -449,7 +449,7 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 
 **Aniket Tayade**
 - GitHub: [@tayade-aniket](https://github.com/tayade-aniket)
-- Project: ADS-04 — AeroFuel AI
+- Project: AeroFuel AI
 
 ---
 
